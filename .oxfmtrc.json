@@ -1,0 +1,1 @@
+{ "proseWrap": "never", "ignorePatterns": ["dist/**", "pnpm-lock.yaml"] }
