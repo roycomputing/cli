@@ -119,8 +119,8 @@ export function registerKeys(program: Command): void {
           cmd.error("Specify --fingerprint <fingerprint> or --key-file <path>.");
         }
         const { id: computer, token } = await computerTarget(options.computer);
-        const target = options.container ? `containers/${options.container}` : "host";
-        const path = `computers/${computer}/${target}/ssh-keys`;
+        const containerPath = options.container ? `/containers/${options.container}` : "";
+        const path = `computers/${computer}${containerPath}/ssh-keys`;
         const hint = options.container
           ? `Inspect with: roy containers list --computer ${computer}`
           : undefined;

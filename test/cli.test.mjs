@@ -196,7 +196,7 @@ test("commands cover every product endpoint and preserve explicit output format"
     ],
   );
   for (const name of [null, "website"]) {
-    const path = base + (name ? "/containers/website" : "/host") + "/ssh-keys";
+    const path = base + (name ? "/containers/website/ssh-keys" : "/ssh-keys");
     const args = name ? [...target, "--container", name] : target;
     await check(["ssh-keys", "list", ...args], "GET", path);
     await check(
@@ -336,7 +336,7 @@ test("omitted computer IDs resolve a sole assignment and cache it per saved logi
     }
     if (path === `/v1/computers/${id}/refresh-state`)
       return [200, { state_cache: cache, refreshed: true, retryAfterMs: 1000 }];
-    if (path === `/v1/computers/${secondId}/host/ssh-keys`) return [200, { keys: [] }];
+    if (path === `/v1/computers/${secondId}/ssh-keys`) return [200, { keys: [] }];
     if (path === `/v1/computers/${id}`)
       return [200, { computer: { ...computer, server, state_cache: cache } }];
     if (path === `/v1/computers/${id}/containers`) return [202];
@@ -378,7 +378,7 @@ test("omitted computer IDs resolve a sole assignment and cache it per saved logi
   rows = [];
   const explicit = await saved("ssh-keys", "list", "--computer", secondId);
   assert.equal(explicit.code, 0, explicit.err);
-  assert.equal(requests.at(-1).path, `/v1/computers/${secondId}/host/ssh-keys`);
+  assert.equal(requests.at(-1).path, `/v1/computers/${secondId}/ssh-keys`);
   const create = await saved("containers", "create", "site");
   assert.equal(create.code, 0, create.err);
   assert.equal(JSON.parse(create.out).computer, id);
@@ -393,7 +393,7 @@ test("omitted computer IDs resolve a sole assignment and cache it per saved logi
   rows = [{ ...computer, id: secondId }];
   const newTarget = await saved("ssh-keys", "list");
   assert.equal(newTarget.code, 0, newTarget.err);
-  assert.equal(requests.at(-1).path, `/v1/computers/${secondId}/host/ssh-keys`);
+  assert.equal(requests.at(-1).path, `/v1/computers/${secondId}/ssh-keys`);
 });
 
 test("errors stay on stderr, invalid targets and private key inputs never reach the API", async (t) => {
@@ -707,7 +707,7 @@ test("SSH-key fingerprints match OpenSSH and identify the exact key on the selec
   for (const container of [undefined, "website"]) {
     const args = ["ssh-keys", "remove", ...target, "--fingerprint", fingerprint];
     if (container) args.push("--container", container);
-    const path = `/v1/computers/${id}/${container ? "containers/website" : "host"}/ssh-keys`;
+    const path = `/v1/computers/${id}${container ? "/containers/website/ssh-keys" : "/ssh-keys"}`;
     const before = requests.length;
     const result = await run(args);
     assert.equal(result.code, 0, result.err);
