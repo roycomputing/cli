@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const bin = process.env.ROY_TEST_BIN ?? fileURLToPath(new URL("../dist/index.js", import.meta.url));
-const id = `computer_${"a".repeat(32)}`;
+const id = "comp_aB3dE5gH7jK";
 const target = ["--computer", id];
 const publicKey =
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB";
@@ -268,8 +268,8 @@ test("computers get displays available CPU counts and drive specifications", asy
 });
 
 test("computer lists default to your assignments and suggest --all only when it adds results", async (t) => {
-  const other = { ...computer, id: `computer_${"b".repeat(32)}`, assigned_user_id: "user_other" };
-  const unassigned = { ...computer, id: `computer_${"c".repeat(32)}`, assigned_user_id: null };
+  const other = { ...computer, id: "comp_bB3dE5gH7jK", assigned_user_id: "user_other" };
+  const unassigned = { ...computer, id: "comp_cB3dE5gH7jK", assigned_user_id: null };
   let computers = [computer, other, unassigned];
   const { run, requests } = await fixture(t, ({ path }) => {
     if (path === "/v1/computers?assigned=me") {
@@ -326,7 +326,7 @@ test("computer lists default to your assignments and suggest --all only when it 
 });
 
 test("omitted computer IDs resolve a sole assignment and cache it per saved login", async (t) => {
-  const secondId = `computer_${"b".repeat(32)}`;
+  const secondId = "comp_bB3dE5gH7jK";
   let rows = [];
   let discoveries = 0;
   const { run, requests, origin, directory } = await fixture(t, ({ path }) => {

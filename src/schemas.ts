@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const computerIdSchema = z.string().regex(/^computer_[0-9a-f]{32}(?![\s\S])/u);
+export const computerIdSchema = z
+  .string()
+  .length(16)
+  .regex(/^comp_[A-Za-z0-9]{11}$/u);
 
 const time = z.iso.datetime();
 const nameAndId = z.object({ id: z.string(), pretty_name: z.string() });
