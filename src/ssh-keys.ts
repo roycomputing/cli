@@ -3,7 +3,7 @@ import { InvalidArgumentError, Option, type Command } from "commander";
 import { computerHelp, computerTarget } from "./target.js";
 import { api, mutate } from "./client.js";
 import { json } from "./http.js";
-import { computerId, containerName, example, output, table } from "./output.js";
+import { computerId, containerName, example, output, table, timeAgo } from "./output.js";
 import { sshFingerprint } from "./ssh-fingerprint.js";
 import { sshKeys } from "./schemas.js";
 
@@ -134,12 +134,12 @@ export function registerKeys(program: Command): void {
             ]),
             "No SSH keys.",
           );
+          if (data.lastModifiedAt) {
+            text = `Last modified ${timeAgo(data.lastModifiedAt)}\n${text}`;
+          }
           const invalid = data.invalidLineNumbers ?? [];
           if (invalid.length > 0) {
             text += `\nInvalid key lines: ${invalid.join(", ")}`;
-          }
-          if (data.lastModifiedAt) {
-            text += `\nLast modified ${data.lastModifiedAt}`;
           }
           output(cmd, data, text);
           return;
