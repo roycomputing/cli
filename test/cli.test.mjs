@@ -672,6 +672,24 @@ test("waiting for a container lets it appear and reports what the last list show
   assert.match(unknown.err, /Container list unavailable/);
 });
 
+test("SSH-key listings show the file modification time only when available", async (t) => {
+  const lastModifiedAt = "2024-05-06T07:08:09.125Z";
+  const { run } = await fixture(t, ({ path }) => [
+    200,
+    path.includes("/containers/") ? { keys: [] } : { keys: [], lastModifiedAt },
+  ]);
+  const args = ["ssh-keys", "list", ...target];
+  const host = await run(args);
+  assert.equal(host.code, 0, host.err);
+  assert.equal(host.out, `No SSH keys.\nLast modified ${lastModifiedAt}\n`);
+  assert.deepEqual(JSON.parse((await run([...args, "--json"])).out), { keys: [], lastModifiedAt });
+  const containerArgs = [...args, "--container", "website"];
+  const container = await run(containerArgs);
+  assert.equal(container.code, 0, container.err);
+  assert.equal(container.out, "No SSH keys.\n");
+  assert.deepEqual(JSON.parse((await run([...containerArgs, "--json"])).out), { keys: [] });
+});
+
 test("SSH-key fingerprints match OpenSSH and identify the exact key on the selected target", async (t) => {
   const type = "ssh-ed25519";
   function field(bytes) {

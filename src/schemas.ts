@@ -100,6 +100,7 @@ export const refresh = z.object({
   retryAfterMs: z.int().nonnegative(),
 });
 export const sshKeys = z.object({
+  lastModifiedAt: z.iso.datetime().optional(),
   keys: z.array(z.object({ key: z.string(), comment: z.string(), options: z.string() })),
   invalidLineNumbers: z.array(z.int()).optional(),
 });

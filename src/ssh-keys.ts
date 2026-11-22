@@ -126,7 +126,7 @@ export function registerKeys(program: Command): void {
           : undefined;
         if (verb === "list") {
           const data = await listKeys(path, token, hint);
-          const text = table(
+          let text = table(
             ["FINGERPRINT", "COMMENT"],
             data.keys.map((k) => [
               k.fingerprint ?? "Fingerprint unavailable",
@@ -135,11 +135,13 @@ export function registerKeys(program: Command): void {
             "No SSH keys.",
           );
           const invalid = data.invalidLineNumbers ?? [];
-          output(
-            cmd,
-            data,
-            invalid.length > 0 ? `${text}\nInvalid key lines: ${invalid.join(", ")}` : text,
-          );
+          if (invalid.length > 0) {
+            text += `\nInvalid key lines: ${invalid.join(", ")}`;
+          }
+          if (data.lastModifiedAt) {
+            text += `\nLast modified ${data.lastModifiedAt}`;
+          }
+          output(cmd, data, text);
           return;
         }
         const inspect = `roy ssh-keys list --computer ${computer}${options.container ? ` --container ${options.container}` : ""}`;
