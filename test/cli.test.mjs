@@ -16,11 +16,11 @@ const publicKey =
 const observed = "2026-10-01T12:00:00.000Z";
 const computer = {
   id,
-  pretty_name: "Example",
-  assigned_user_id: "user_fixture",
-  created_at: observed,
-  updated_at: observed,
-  ended_at: null,
+  prettyName: "Example",
+  assignedUserId: "user_fixture",
+  createdAt: observed,
+  updatedAt: observed,
+  endedAt: null,
 };
 const snapshot = {
   capturedAt: observed,
@@ -48,7 +48,7 @@ const cache = {
 const server = {
   ipv4: "192.0.2.1",
   country: "Canada East",
-  updated_at: observed,
+  updatedAt: observed,
   installation: null,
   isMarkedAsInstalling: false,
   specs: {
@@ -124,9 +124,9 @@ test("commands cover every product endpoint and preserve explicit output format"
     if (path === "/v1/auth/status") return [200, { userId: "user_fixture", orgId: "org_fixture" }];
     if (path === "/v1/orders") return [200, { orders: [] }];
     if (path === base)
-      return [200, { computer: { ...computer, server, state_cache: computerCache } }];
+      return [200, { computer: { ...computer, server, stateCache: computerCache } }];
     if (path === base + "/refresh-state")
-      return [200, { state_cache: lastUpdate, refreshed: true, retryAfterMs: 1000 }];
+      return [200, { stateCache: lastUpdate, refreshed: true, retryAfterMs: 1000 }];
     if (path.endsWith("/ssh-keys")) return method === "GET" ? [200, { keys: [] }] : [204];
     return [202];
   });
@@ -143,10 +143,10 @@ test("commands cover every product endpoint and preserve explicit output format"
   await check(["orders", "list"], "GET", "/v1/orders");
   const beforeDetail = requests.length;
   const detail = await check(["computers", "get", id], "GET", base);
-  assert.equal(detail.computer.assigned_user_id, "user_fixture");
-  assert.equal(detail.computer.state_cache.snapshot.capturedAt, capturedAt);
+  assert.equal(detail.computer.assignedUserId, "user_fixture");
+  assert.equal(detail.computer.stateCache.snapshot.capturedAt, capturedAt);
   assert.equal(
-    detail.computer.state_cache.snapshot.containers[0].sshCommand,
+    detail.computer.stateCache.snapshot.containers[0].sshCommand,
     "ssh -p 2345 roy@192.0.2.1",
   );
   assert.deepEqual(
@@ -240,9 +240,9 @@ test("computers get displays available CPU counts and drive specifications", asy
     {
       computer: {
         ...computer,
-        assigned_user_id: null,
+        assignedUserId: null,
         server: { ...server, specs },
-        state_cache: cache,
+        stateCache: cache,
       },
     },
   ]);
@@ -268,15 +268,12 @@ test("computers get displays available CPU counts and drive specifications", asy
 });
 
 test("computer lists default to your assignments and suggest --all only when it adds results", async (t) => {
-  const other = { ...computer, id: "comp_bB3dE5gH7jK", assigned_user_id: "user_other" };
-  const unassigned = { ...computer, id: "comp_cB3dE5gH7jK", assigned_user_id: null };
+  const other = { ...computer, id: "comp_bB3dE5gH7jK", assignedUserId: "user_other" };
+  const unassigned = { ...computer, id: "comp_cB3dE5gH7jK", assignedUserId: null };
   let computers = [computer, other, unassigned];
   const { run, requests } = await fixture(t, ({ path }) => {
     if (path === "/v1/computers?assigned=me") {
-      return [
-        200,
-        { computers: computers.filter((row) => row.assigned_user_id === "user_fixture") },
-      ];
+      return [200, { computers: computers.filter((row) => row.assignedUserId === "user_fixture") }];
     }
     if (path === "/v1/computers") return [200, { computers }];
     assert.equal(path, "/v1/auth/status");
@@ -335,10 +332,10 @@ test("omitted computer IDs resolve a sole assignment and cache it per saved logi
       return [200, { computers: rows }];
     }
     if (path === `/v1/computers/${id}/refresh-state`)
-      return [200, { state_cache: cache, refreshed: true, retryAfterMs: 1000 }];
+      return [200, { stateCache: cache, refreshed: true, retryAfterMs: 1000 }];
     if (path === `/v1/computers/${secondId}/ssh-keys`) return [200, { keys: [] }];
     if (path === `/v1/computers/${id}`)
-      return [200, { computer: { ...computer, server, state_cache: cache } }];
+      return [200, { computer: { ...computer, server, stateCache: cache } }];
     if (path === `/v1/computers/${id}/containers`) return [202];
     throw new Error("Unexpected route");
   });
@@ -588,7 +585,7 @@ test("listing a named container waits for an SSH address, respects cooldown, and
         {
           refreshed: true,
           retryAfterMs: 1100,
-          state_cache: {
+          stateCache: {
             ...cache,
             snapshot: {
               ...snapshot,
@@ -598,7 +595,7 @@ test("listing a named container waits for an SSH address, respects cooldown, and
         },
       ];
     }
-    return [200, { computer: { ...computer, server, state_cache: cache } }];
+    return [200, { computer: { ...computer, server, stateCache: cache } }];
   });
   const ready = await run(["containers", "list", "website", ...target, "--wait", "10", "--json"]);
   assert.equal(ready.code, 0, ready.err);
@@ -639,11 +636,11 @@ test("waiting for a container lets it appear and reports what the last list show
         {
           refreshed: true,
           retryAfterMs,
-          state_cache: { ...cache, snapshot: nextSnapshot() },
+          stateCache: { ...cache, snapshot: nextSnapshot() },
         },
       ];
     }
-    return [200, { computer: { ...computer, server, state_cache: cache } }];
+    return [200, { computer: { ...computer, server, stateCache: cache } }];
   });
   const args = ["containers", "list", "website", ...target, "--wait"];
   const ready = await run([...args, "10"]);

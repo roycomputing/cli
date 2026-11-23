@@ -6,12 +6,12 @@ export const computerIdSchema = z
   .regex(/^comp_[A-Za-z0-9]{11}$/u);
 
 const time = z.iso.datetime();
-const nameAndId = z.object({ id: z.string(), pretty_name: z.string() });
+const nameAndId = z.object({ id: z.string(), prettyName: z.string() });
 const summary = nameAndId.extend({
-  assigned_user_id: z.string().nullable(),
-  created_at: time,
-  updated_at: time,
-  ended_at: z.null(),
+  assignedUserId: z.string().nullable(),
+  createdAt: time,
+  updatedAt: time,
+  endedAt: z.null(),
 });
 export const computers = z.object({ computers: z.array(summary) });
 
@@ -77,12 +77,12 @@ const cache = z
   .nullable();
 export const detail = z.object({
   computer: summary.extend({
-    state_cache: cache,
+    stateCache: cache,
     server: z.object({
       ipv4: z.ipv4(),
       country: z.string(),
       specs,
-      updated_at: time,
+      updatedAt: time,
       isMarkedAsInstalling: z.boolean(),
       installation: z
         .object({
@@ -95,7 +95,7 @@ export const detail = z.object({
   }),
 });
 export const refresh = z.object({
-  state_cache: cache,
+  stateCache: cache,
   refreshed: z.boolean(),
   retryAfterMs: z.int().nonnegative(),
 });

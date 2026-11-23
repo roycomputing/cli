@@ -28,7 +28,7 @@ async function listComputers(options: { all?: boolean }, cmd: Command): Promise<
   const rows = await getComputers(token, options.all);
   const machineReadable = usesJson(cmd);
   const user =
-    !machineReadable && rows.some((row) => row.assigned_user_id !== null)
+    !machineReadable && rows.some((row) => row.assignedUserId !== null)
       ? await currentUser(token)
       : undefined;
   const hint = "Run roy computers list --all to include other computers in this organization.";
@@ -42,7 +42,7 @@ async function listComputers(options: { all?: boolean }, cmd: Command): Promise<
     { computers: rows },
     table(
       ["ID", "NAME", "ASSIGNED USER"],
-      rows.map((row) => [row.id, row.pretty_name, assignedUser(row.assigned_user_id, user)]),
+      rows.map((row) => [row.id, row.prettyName, assignedUser(row.assignedUserId, user)]),
       othersExist ? `No computers are assigned to you. ${hint}` : "No computers.",
     ),
   );
@@ -62,9 +62,9 @@ export function registerComputers(program: Command): void {
     .action(async (explicit: string | undefined, _, cmd: Command) => {
       const { id, token } = await computerTarget(explicit, "a computer ID: roy computers get <id>");
       const data = await get(`computers/${id}`, detail, token);
-      const { pretty_name, server, state_cache, assigned_user_id } = data.computer;
-      const user = assigned_user_id && !usesJson(cmd) ? await currentUser(token) : undefined;
-      const snapshot = state_cache?.snapshot;
+      const { prettyName, server, stateCache, assignedUserId } = data.computer;
+      const user = assignedUserId && !usesJson(cmd) ? await currentUser(token) : undefined;
+      const snapshot = stateCache?.snapshot;
       const containers = snapshot?.containers.map((c) => withSshCommand(c, server.ipv4)) ?? [];
       if (snapshot) {
         snapshot.containers = containers;
@@ -83,8 +83,8 @@ export function registerComputers(program: Command): void {
         cmd,
         data,
         [
-          `Computer: ${plain(pretty_name)} (${id})`,
-          `Assigned user: ${assignedUser(assigned_user_id, user)}`,
+          `Computer: ${plain(prettyName)} (${id})`,
+          `Assigned user: ${assignedUser(assignedUserId, user)}`,
           `Host SSH: ssh -p 2999 roy@${server.ipv4}`,
           `Location: ${plain(server.country)}`,
           `Hardware: ${isBareMetal ? "Bare-metal " : ""}${hardware}`,
@@ -137,7 +137,7 @@ export function registerOrders(program: Command): void {
             row.id,
             row.indicativeStatusPrettyString,
             row.indicativeBillingStatusPrettyString,
-            row.computer?.pretty_name ?? "—",
+            row.computer?.prettyName ?? "—",
           ]),
           "No orders.",
         ),

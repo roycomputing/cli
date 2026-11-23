@@ -29,7 +29,7 @@ async function fetchContainers(id: string, token: string, name: string | undefin
         await api(`computers/${id}/refresh-state`, { method: "POST", token: bearer, signal }),
         refresh,
       );
-      const snapshot = data.state_cache?.snapshot;
+      const snapshot = data.stateCache?.snapshot;
       if (snapshot) {
         const selected = name
           ? snapshot.containers.filter((c) => c.name === name)
