@@ -1,6 +1,6 @@
 {
   "name": "@roycomputing/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Manage RoyComputing computers and containers from your terminal.",
   "license": "MIT",
   "repository": {
