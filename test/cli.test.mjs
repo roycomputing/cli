@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const bin = process.env.ROY_TEST_BIN ?? fileURLToPath(new URL("../dist/index.js", import.meta.url));
+const entryPoint = fileURLToPath(new URL("../dist/index.js", import.meta.url));
 const id = "comp_aB3dE5gH7jK";
 const target = ["--computer", id];
 const publicKey =
@@ -86,17 +86,25 @@ async function fixture(t, handler) {
     await new Promise((resolve) => http.close(resolve));
     await rm(directory, { recursive: true, force: true });
   });
-  function run(args, { input = "", token = "fixture-access", tokenOrigin = origin } = {}) {
-    const proc = spawn(process.execPath, [bin, ...args], {
-      env: {
-        ...process.env,
-        TZ: "Asia/Taipei",
-        XDG_CONFIG_HOME: directory,
-        ROYCOMPUTING_API_URL: origin,
-        ROYCOMPUTING_TOKEN: token,
-        ROYCOMPUTING_TOKEN_ORIGIN: tokenOrigin,
+  function run(
+    args,
+    { input = "", token = "fixture-access", tokenOrigin = origin, env = {} } = {},
+  ) {
+    const proc = spawn(
+      process.env.ROY_TEST_BIN ?? process.execPath,
+      process.env.ROY_TEST_BIN ? args : [entryPoint, ...args],
+      {
+        env: {
+          ...process.env,
+          TZ: "Asia/Taipei",
+          XDG_CONFIG_HOME: directory,
+          ROYCOMPUTING_API_URL: origin,
+          ROYCOMPUTING_TOKEN: token,
+          ROYCOMPUTING_TOKEN_ORIGIN: tokenOrigin,
+          ...env,
+        },
       },
-    });
+    );
     proc.stdin.end(input);
     let out = "",
       err = "";
@@ -113,6 +121,174 @@ async function fixture(t, handler) {
   }
   return { run, requests, origin, directory };
 }
+
+test("an empty or relative XDG_CONFIG_HOME falls back to the platform config directory", async (t) => {
+  const { run, directory } = await fixture(t, () => [404, {}]);
+  for (const xdg of ["", "relative"]) {
+    const home = join(directory, xdg || "empty");
+    const local = join(home, "LocalAppData");
+    const result = await run(["auth", "logout"], {
+      token: "",
+      env: { HOME: home, USERPROFILE: home, LOCALAPPDATA: local, XDG_CONFIG_HOME: xdg },
+    });
+    assert.equal(result.code, 0, result.err);
+    const config = process.platform === "win32" ? local : join(home, ".config");
+    assert.ok((await stat(join(config, "roycomputing"))).isDirectory());
+  }
+});
+
+test("cached updates are per origin and installation, including help, JSON and failed commands", async (t) => {
+  const { run, origin, directory } = await fixture(t, () => [200, { orders: [] }]);
+  const dir = join(directory, "roycomputing");
+  await mkdir(dir);
+  const file = join(dir, createHash("sha256").update(origin).digest("hex") + ".json");
+  const standalone = process.env.ROY_TEST_STANDALONE === "1";
+  const latest = standalone ? "9999.2.0" : "9999.1.0";
+  const command = !standalone
+    ? "npm install --global @roycomputing/cli@latest"
+    : process.platform === "win32"
+      ? 'powershell -ExecutionPolicy ByPass -c "irm https://roycomputing.com/install.ps1 | iex"'
+      : "curl -fsSL https://roycomputing.com/install.sh | sh";
+  const state = {
+    updateChecks: {
+      npm: { attemptedAt: Date.now(), latest: "9999.1.0" },
+      standalone: { attemptedAt: Date.now(), latest: "9999.2.0" },
+    },
+  };
+  await writeFile(file, JSON.stringify(state));
+  for (const args of [["--help"], ["--version"], ["--json", "orders", "list"], ["unknown"]]) {
+    const result = await run(args);
+    assert.equal(result.code, args[0] === "unknown" ? 2 : 0, result.err);
+    assert.ok(result.err.includes(`roy ${latest} is available`), result.err);
+    assert.ok(result.err.includes(command), result.err);
+    if (args[0] === "--json") assert.deepEqual(JSON.parse(result.out), { orders: [] });
+  }
+  const other = await run(["--version"], {
+    env: { ROYCOMPUTING_API_URL: "https://other.example.test" },
+  });
+  assert.equal(other.err, "");
+  const installed = other.out.trim();
+  state.updateChecks[standalone ? "standalone" : "npm"].latest = installed;
+  await writeFile(file, JSON.stringify(state));
+  assert.equal((await run(["--version"])).err, "");
+});
+
+test(
+  "update checks wait a day on first use, retry failures after five minutes and allow explicit checks",
+  {
+    skip:
+      process.env.ROY_TEST_STANDALONE === "1" &&
+      "uses Node's test preload to mock the npm registry",
+  },
+  async (t) => {
+    let registryStatus = 503;
+    const { run, directory, origin, requests } = await fixture(t, async ({ path, auth }) => {
+      if (path === "/fixture/npm-latest") {
+        assert.equal(auth, undefined);
+        if (registryStatus === "timeout") {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+          return [200, { version: "9999.11.0" }];
+        }
+        return [registryStatus, { version: "9999.10.0" }];
+      }
+      return [200, { orders: [] }];
+    });
+    const day = 24 * 60 * 60_000;
+    const retry = 5 * 60_000;
+    const firstLaunch = Date.now() - 4 * day;
+    const env = {
+      NODE_OPTIONS:
+        "--import=" + new URL("./fixtures/mock-update-service.mjs", import.meta.url).href,
+      ROY_TEST_TTY: "1",
+      ROY_TEST_NOW: String(firstLaunch),
+    };
+    const at = (elapsed) => {
+      env.ROY_TEST_NOW = String(firstLaunch + elapsed);
+    };
+    const call = (args) => run(args, { env });
+    const checks = () => requests.filter((r) => r.path === "/fixture/npm-latest").length;
+    const file = join(
+      directory,
+      "roycomputing",
+      createHash("sha256").update(origin).digest("hex") + ".json",
+    );
+    const orders = ["orders", "list"];
+    const first = await call(orders);
+    assert.equal(first.code, 0, first.err);
+    assert.equal(first.err, "");
+    const initial = JSON.parse(await readFile(file, "utf8"));
+    assert.equal(initial.updateChecks.npm.attemptedAt, firstLaunch);
+    assert.equal(checks(), 0);
+    // An existing cache can also be missing its timestamp. A local command starts the clock.
+    delete initial.updateChecks.npm.attemptedAt;
+    await writeFile(file, JSON.stringify(initial));
+    await call(["--help"]);
+    assert.equal(
+      JSON.parse(await readFile(file, "utf8")).updateChecks.npm.attemptedAt,
+      firstLaunch,
+    );
+    at(day - 1);
+    await call(orders);
+    assert.equal(checks(), 0);
+    at(day);
+    await call(["--json", ...orders]);
+    await call(["--help"]);
+    await run(orders, { env: { ...env, ROY_TEST_TTY: "0" } });
+    assert.equal(checks(), 0);
+    const unavailable = await call(orders);
+    assert.equal(unavailable.code, 0);
+    assert.equal(unavailable.out, first.out);
+    assert.equal(unavailable.err, "");
+    assert.equal(checks(), 1);
+    at(day + retry - 1);
+    await call(orders);
+    assert.equal(checks(), 1);
+    at(day + retry);
+    registryStatus = 200;
+    const results = await Promise.all([call(orders), call(orders)]);
+    for (const result of results) {
+      assert.equal(result.code, 0, result.err);
+      assert.match(result.err, /9999\.10\.0 is available/);
+    }
+    assert.equal(checks(), 2);
+    at(2 * day + retry - 1);
+    await call(orders);
+    assert.equal(checks(), 2);
+    at(2 * day + retry);
+    registryStatus = "timeout";
+    for (let i = 0; i < 2; i++) {
+      const offline = await call(orders);
+      assert.equal(offline.code, 0, offline.err);
+      assert.match(offline.err, /9999\.10\.0 is available/);
+      assert.match(offline.err, /npm install --global @roycomputing\/cli@latest/);
+    }
+    assert.equal(checks(), 3);
+    at(2 * day + 2 * retry - 1);
+    registryStatus = 503;
+    const failed = await call(["version", "--check"]);
+    assert.equal(failed.code, 1);
+    assert.match(failed.err, /HTTP 503/);
+    assert.equal(checks(), 4);
+    // A failed explicit check also resets the automatic retry deadline.
+    at(2 * day + 2 * retry);
+    await call(orders);
+    assert.equal(checks(), 4);
+    registryStatus = 200;
+    const forced = await call(["--json", "version", "--check"]);
+    assert.equal(forced.code, 0, forced.err);
+    assert.equal(
+      JSON.parse(forced.out).updateCommand,
+      "npm install --global @roycomputing/cli@latest",
+    );
+    assert.equal(checks(), 5);
+    const uncached = await run(["--json", "version", "--check"], {
+      env: { ...env, XDG_CONFIG_HOME: file },
+    });
+    assert.equal(uncached.code, 0, uncached.err);
+    assert.deepEqual(JSON.parse(uncached.out), JSON.parse(forced.out));
+    assert.equal(checks(), 6);
+  },
+);
 
 test("commands cover every product endpoint and preserve explicit output format", async (t) => {
   const base = `/v1/computers/${id}`;
@@ -502,15 +678,22 @@ test("device approval, concurrent refresh, verified identity and logout", async 
     assert.equal(path, "/v1/auth/status");
     return denyStatus ? [403, { error: "Membership required" }] : [200, ids];
   });
+  const dir = join(directory, "roycomputing");
+  const file = createHash("sha256").update(origin).digest("hex") + ".json";
+  const checked = { attemptedAt: Date.now(), latest: "0.0.0" };
+  const updateState = { updateChecks: { npm: checked, standalone: checked } };
+  await mkdir(dir);
+  await writeFile(join(dir, file), JSON.stringify(updateState));
   const saved = { token: "" };
   const login = await run(["auth", "login"], saved);
   assert.equal(login.code, 0, login.err);
   assert.equal(login.out.trim(), "Signed in as Alex Lee (alex@example.test) in Example Org.");
   assert.match(login.err, /approve\?code=AB-CD/);
   assert.doesNotMatch(login.err + login.out, /private-device|private-refresh|access-one/);
-  const dir = join(directory, "roycomputing");
-  const [file] = await readdir(dir);
-  assert.equal((await stat(join(dir, file))).mode & 0o777, 0o600);
+  assert.deepEqual(await readdir(dir), [file]);
+  if (process.platform !== "win32") {
+    assert.equal((await stat(join(dir, file))).mode & 0o777, 0o600);
+  }
   const statuses = await Promise.all([
     run(["auth", "status", "--json"], saved),
     run(["auth", "status"], saved),
@@ -559,7 +742,7 @@ test("device approval, concurrent refresh, verified identity and logout", async 
   assert.match(switched.out, /^User: user_fixture$/m);
   assert.match(switched.out, /^Organization: org_different$/m);
   assert.equal((await run(["auth", "logout"], saved)).code, 0);
-  assert.deepEqual(await readdir(dir), []);
+  assert.deepEqual(JSON.parse(await readFile(join(dir, file), "utf8")), updateState);
   assert.equal(requests.at(-1).path, "/revoke");
   assert.equal((await run(["auth", "status"], saved)).code, 1);
 });

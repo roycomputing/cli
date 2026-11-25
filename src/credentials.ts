@@ -1,63 +1,23 @@
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
-import lockfile from "proper-lockfile";
+import { rm } from "node:fs/promises";
 import { apiOrigin, productionOrigin } from "./http.js";
-import { credential, refreshCredential, revoke, type Credential } from "./oauth.js";
+import { refreshCredential, revoke, type Credential } from "./oauth.js";
 import { fetchIdentity, matchingProfile, refreshProfile } from "./profile.js";
 import type { Identity } from "./schemas.js";
+import { locked, read, store } from "./state.js";
 
 const cacheLifetimeMs = 5 * 60_000;
 
-function credentialFile(): string {
-  const config =
-    process.env.XDG_CONFIG_HOME ??
-    (process.platform === "win32" ? process.env.LOCALAPPDATA : undefined);
-  const directory = config && isAbsolute(config) ? config : join(homedir(), ".config");
-  const key = createHash("sha256").update(apiOrigin()).digest("hex");
-  return join(directory, "roycomputing", `${key}.json`);
-}
-
-async function read(file: string): Promise<Credential | undefined> {
-  try {
-    const value: unknown = JSON.parse(await readFile(file, "utf8"));
-    return credential.parse(value);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return undefined;
-    }
-    throw new Error("Could not read saved credentials. Run roy auth login.", { cause: error });
-  }
-}
-
-async function store(file: string, value: Credential): Promise<void> {
-  const temp = `${file}.${randomUUID()}`;
-  try {
-    await writeFile(temp, JSON.stringify(value), { mode: 0o600, flag: "wx" });
-    await rename(temp, file);
-  } finally {
-    await rm(temp, { force: true });
-  }
-}
-
-// Concurrent commands must share a rotated refresh token. Lock the read/refresh/write together.
-async function locked<T>(operation: (file: string) => Promise<T>): Promise<T> {
-  const file = credentialFile();
-  await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-  const unlock = await lockfile.lock(file, {
-    realpath: false,
-    retries: { retries: 50, minTimeout: 100, maxTimeout: 800 },
-  });
-  try {
-    return await operation(file);
-  } finally {
-    await unlock();
-  }
+async function readLogin(file: string) {
+  const state = await read(file);
+  return state && "accessToken" in state ? state : undefined;
 }
 
 export function saveLogin(value: Credential): Promise<void> {
-  return locked((file) => store(file, value));
+  return locked(async (file) => {
+    // A fresh login can also replace a damaged credential file.
+    const previous = await read(file).catch(() => null);
+    await store(file, { ...value, updateChecks: previous?.updateChecks });
+  });
 }
 
 export async function currentUser(
@@ -68,7 +28,7 @@ export async function currentUser(
     return fetchIdentity(token);
   }
   return locked(async (file) => {
-    const login = await read(file);
+    const login = await readLogin(file);
     // Another process may have replaced the login since this command obtained its token.
     if (login?.accessToken !== token) {
       return fetchIdentity(token);
@@ -106,7 +66,7 @@ export async function soleComputer(token: string, lookup: () => Promise<string>)
     return lookup();
   }
   return locked(async (file) => {
-    const login = await read(file);
+    const login = await readLogin(file);
     if (login?.accessToken !== token) {
       return lookup();
     }
@@ -131,7 +91,7 @@ export async function accessToken(): Promise<string> {
     return token;
   }
   return locked(async (file) => {
-    const current = await read(file);
+    const current = await readLogin(file);
     if (!current) {
       throw new Error(`No login for ${apiOrigin()}. Run roy auth login.`);
     }
@@ -148,11 +108,18 @@ export async function logout(): Promise<void> {
   await locked(async (file) => {
     const current = await read(file);
     try {
-      if (current) {
+      if (current && "accessToken" in current) {
         await revoke(current);
       }
     } finally {
-      await rm(file, { force: true });
+      if (current?.updateChecks) {
+        // Logout must still remove the tokens if the cache cannot be rewritten.
+        await store(file, { updateChecks: current.updateChecks }).catch(() =>
+          rm(file, { force: true }),
+        );
+      } else {
+        await rm(file, { force: true });
+      }
     }
   });
 }

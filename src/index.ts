@@ -5,15 +5,16 @@ import { registerComputers, registerOrders } from "./computers.js";
 import { registerContainers } from "./containers.js";
 import { apiOrigin, plain } from "./http.js";
 import { deviceLogin } from "./oauth.js";
-import { example, output } from "./output.js";
+import { example, output, usesJson } from "./output.js";
 import { refreshProfile, userLabel } from "./profile.js";
 import { registerKeys } from "./ssh-keys.js";
+import { installedVersion, latestVersion, updateCommand, updateNotice } from "./updates.js";
 
 const program = new Command()
   .name("roy")
   .configureHelp({ showGlobalOptions: true })
   .description("Manage RoyComputing computers and containers")
-  .version("0.1.0")
+  .version(installedVersion)
   .option("--json", "write one JSON result on success")
   .showHelpAfterError()
   .exitOverride();
@@ -21,6 +22,35 @@ program.addHelpText(
   "after",
   "\nStart with roy auth login, then roy computers list.\nUse roy <command> <subcommand> --help for arguments and examples.",
 );
+let noticeMode: "daily" | "cached" = "cached";
+program.hook("preAction", (_, command) => {
+  if (process.stdout.isTTY && process.stderr.isTTY && !usesJson(command)) {
+    noticeMode = "daily";
+  }
+});
+const version = program
+  .command("version")
+  .description("Show the installed version or check for an update")
+  .option("--check", "check for the latest published version now")
+  .action(async (options: { check?: boolean }, cmd: Command) => {
+    noticeMode = "cached";
+    if (!options.check) {
+      output(cmd, { installed: installedVersion }, installedVersion);
+      return;
+    }
+    const latest = await latestVersion("force");
+    const command = updateCommand(latest);
+    output(
+      cmd,
+      {
+        installed: installedVersion,
+        latest,
+        updateAvailable: Boolean(command),
+        updateCommand: command,
+      },
+      command ? updateNotice(latest, command) : `Installed: ${installedVersion}\nLatest: ${latest}`,
+    );
+  });
 const auth = program
   .command("auth")
   .description("Sign in and inspect the active user and organization");
@@ -82,5 +112,14 @@ try {
       `roy: ${plain(error instanceof Error ? error.message : "Command failed")}\n`,
     );
     process.exitCode = 1;
+  }
+}
+
+if (!version.opts<{ check?: boolean }>().check || Number(process.exitCode ?? 0) !== 0) {
+  // Update service or cache failures must never change the command's result.
+  const latest = await latestVersion(noticeMode).catch(() => null);
+  const command = latest && updateCommand(latest);
+  if (latest && command) {
+    process.stderr.write(`${updateNotice(latest, command)}\n`);
   }
 }

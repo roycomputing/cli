@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "Manage RoyComputing computers and containers from your terminal.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roycomputing/cli.git"
+  },
   "bin": {
     "roy": "dist/index.js"
   },
